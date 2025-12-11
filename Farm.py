@@ -1,7 +1,8 @@
-import asyncio
+import asyncio 
 import tkinter as tk
 from PIL import Image, ImageTk
 import os
+import json
 
 # ==========================
 #          DATA
@@ -14,14 +15,11 @@ plants = [
 ]
 
 fertilizers = {
-    "basic": {"name": "Basic Fertilizer", "multiplier": 0.8, "price": 10},
-    "super": {"name": "Super Fertilizer", "multiplier": 0.5, "price": 20},
+    "basic": {"name": "Basic Fertilizer", "multiplier": 0.8, "price": 10, "turns": 5},
+    "super": {"name": "Super Fertilizer", "multiplier": 0.5, "price": 20, "turns": 5},
 }
 
-# Folder with plant images
 IMAGE_FOLDER = r"C:\Users\hohli\OneDrive\Robochyi_stil\Plants_growing"
-
-# Load all images for stages
 plant_images = {}
 for plant in plants:
     images = []
@@ -40,10 +38,11 @@ class Plot:
         self.x = x
         self.y = y
         self.button = button
-        self.state = "empty"  # empty / growing / ready
+        self.state = "empty"
         self.plant = None
         self.stage = 0
         self.task = None
+        self.fertilizer_turns = 0
 
     async def plant_seed(self, plant, fertilizer, on_ready):
         if self.state != "empty":
@@ -53,11 +52,10 @@ class Plot:
         self.state = "growing"
         self.plant = plant
         self.stage = 0
+        self.fertilizer_turns = fertilizer.get('turns', 0)
 
         grow_time = plant["baseGrowTime"] * fertilizer["multiplier"]
-        stage_time = grow_time / 3  # 3 stages
-
-        print(f"Planting {plant['name']} at ({self.x},{self.y}). Grow time: {grow_time} sec...")
+        stage_time = grow_time / 3
 
         async def grow():
             for i in range(3):
@@ -72,7 +70,6 @@ class Plot:
 
     def harvest(self):
         if self.state != "ready":
-            print(f"Plot ({self.x},{self.y}) is not ready!")
             return None
         harvested = self.plant
         self.state = "empty"
@@ -87,7 +84,7 @@ class Plot:
         else:
             img = plant_images[self.plant['name']][self.stage]
             self.button.config(image=img)
-            self.button.image = img  # prevent garbage collection
+            self.button.image = img
 
 # ==========================
 #          BARN
@@ -98,6 +95,8 @@ class Barn:
         self.storage = {}
 
     def add(self, plant):
+        if plant is None:
+            return
         name = plant["name"]
         self.storage[name] = self.storage.get(name, 0) + 1
 
@@ -145,28 +144,32 @@ class Shop:
 #       FARM GAME GUI
 # ==========================
 
+class PlotPurchaseDTO:
+    def __init__(self, fertilizer_type=None):
+        self.fertilizer_type = fertilizer_type
+
 class FarmGame:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Farm 5x5")
         self.player = Player()
         self.barn = Barn()
-
         self.farm = []
+        self.max_plots = 16
+
         for y in range(5):
             row = []
             for x in range(5):
                 btn = tk.Button(self.root, width=64, height=64)
                 btn.grid(row=y, column=x)
-                plot = Plot(x, y, btn)
-                row.append(plot)
+                row.append(Plot(x, y, btn))
             self.farm.append(row)
 
-        # Action buttons
         tk.Button(self.root, text="Buy Basic Fertilizer", command=lambda: self.player.buy_fertilizer("basic")).grid(row=6, column=0, columnspan=2)
         tk.Button(self.root, text="Plant Wheat (0,0)", command=lambda: asyncio.create_task(self.plant_crop(0,0,"Wheat"))).grid(row=6, column=2)
         tk.Button(self.root, text="Harvest (0,0)", command=lambda: self.harvest_crop(0,0)).grid(row=6, column=3)
         tk.Button(self.root, text="Sell Wheat", command=lambda: Shop.sell("Wheat",1,12,self.player,self.barn)).grid(row=6, column=4)
+        tk.Button(self.root, text="Buy New Plot + Fertilizer", command=self.buy_plot_with_fertilizer).grid(row=7, column=0, columnspan=5)
 
     async def plant_crop(self, x, y, plant_name):
         plant = next(p for p in plants if p['name']==plant_name)
@@ -184,13 +187,26 @@ class FarmGame:
             self.barn.add(harvested)
             print("Barn:", self.barn.storage)
 
+    def buy_plot_with_fertilizer(self):
+        total_plots = sum(len(row) for row in self.farm)
+        if total_plots >= self.max_plots:
+            print("Maximum plots reached!")
+            return
+        y = len(self.farm)
+        row = []
+        for x in range(5):
+            if total_plots >= self.max_plots:
+                break
+            btn = tk.Button(self.root, width=64, height=64)
+            btn.grid(row=y, column=x)
+            plot = Plot(x, y, btn)
+            row.append(plot)
+            asyncio.create_task(plot.plant_seed(plants[0], fertilizers["basic"], self.on_ready))
+            total_plots += 1
+        self.farm.append(row)
+
     def run(self):
         self.root.mainloop()
-
-
-# ==========================
-#          RUN
-# ==========================
 
 game = FarmGame()
 game.run()
